@@ -1,16 +1,43 @@
 import express, { NextFunction, Request, Response } from "express";
 import AuthRouter from "./routes/auth";
 import createHttpError, { isHttpError } from "http-errors";
+import { DynamoDB, DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import session from 'express-session';
+import dotenv from 'dotenv';
+import connect from "connect-dynamodb";
+
 
 const app = express();
 const port = 5005;
 
+dotenv.config();
+
 const cors = require('cors');
+
+type SessionData = {
+  userId: string
+}
+
+const DynamoDBStore = connect<SessionData>(session);
 
 // To use json:
 app.use(express.json());
 app.use(cors({
   origin: 'http://localhost:5173',
+}));
+
+// const client = new DynamoDBClient({
+//   region: process.env.AWS_REGION ?? "us-east-1"
+// });
+
+app.use(session({
+  secret: process.env.SESSION_SECRET ?? "secret",
+  resave: false,
+  saveUninitialized: true,
+  cookie: {
+		maxAge: 60 * 60 * 1000
+	},
+  store: new DynamoDBStore({})
 }));
 
 app.use("/api/v0/auth", AuthRouter);
@@ -29,6 +56,8 @@ app.use((error: unknown, req: Request, res: Response, next: NextFunction) => {
 	}
 	res.status(statusCode).json({ error: errorMessage });
 });
+
+
 
 app.listen(port, () => {
   console.log(`Server started on port ${port}...`);
