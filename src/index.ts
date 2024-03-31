@@ -1,5 +1,5 @@
 import express, { NextFunction, Request, Response } from "express";
-import AuthRouter from "./routes/auth";
+import AuthRouter, { isLoggedIn } from "./routes/auth";
 import createHttpError, { isHttpError } from "http-errors";
 import { DynamoDB, DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import session from 'express-session';
@@ -26,9 +26,6 @@ app.use(cors({
   origin: 'http://localhost:5173',
 }));
 
-// const client = new DynamoDBClient({
-//   region: process.env.AWS_REGION ?? "us-east-1"
-// });
 
 app.use(session({
   secret: process.env.SESSION_SECRET ?? "secret",

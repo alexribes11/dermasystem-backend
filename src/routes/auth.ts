@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { RequestHandler, Router } from "express";
 import { DynamoDBClient, } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
 import createHttpError from "http-errors";
@@ -12,6 +12,19 @@ const client = new DynamoDBClient({
 });
 
 const docClient = DynamoDBDocumentClient.from(client);
+
+export const isLoggedIn: RequestHandler = (req, res, next) => {
+  try {
+    const user = req.session.userId;
+    if (!user) {
+      throw createHttpError(403, "Must log in");
+    }
+    next();
+  }
+  catch (err) {
+    next(err);
+  }
+}
 
 AuthRouter.post("/register", async (req, res, next) => {
   try {
@@ -117,7 +130,9 @@ AuthRouter.post("/login", async (req, res, next) => {
       throw createHttpError(403, "Username or password incorrect");
     }
 
-    req.session.id = user.userID;
+    console.log(user);
+    req.session.userId = user.id;
+    console.log(req.session);
 
     res.json({
       msg: "Logged in!",
@@ -129,6 +144,16 @@ AuthRouter.post("/login", async (req, res, next) => {
   catch(error) {
     next(error);
   }
+});
+
+AuthRouter.post("/logout", (req, res, next) => {
+	req.session.destroy(error => {
+		if (error) {
+			next(error);
+		} else {
+			res.sendStatus(200);
+		}
+	});
 });
 
 export default AuthRouter;
