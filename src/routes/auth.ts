@@ -13,13 +13,48 @@ const client = new DynamoDBClient({
 
 const docClient = DynamoDBDocumentClient.from(client);
 
-export const isLoggedIn: RequestHandler = (req, res, next) => {
+AuthRouter.post("/login", async (req, res, next) => {
+
   try {
-    const user = req.session.userId;
-    if (!user) {
-      throw createHttpError(403, "Must log in");
+    const { username, password } = req.body;
+
+    if (!username) {
+      throw createHttpError(400, "Username required in request body");
     }
-    next();
+    
+    if (!password) {
+      throw createHttpError(400, "Password required in request body");
+    }
+
+    const getResponse = await docClient.send(
+      new ScanCommand({
+        TableName: "users",
+        FilterExpression: "username = :username",
+        ExpressionAttributeValues: {
+          ":username": username
+         }
+      })
+    ); 
+
+    const results = getResponse.Items;
+
+    if (!results) {
+      throw createHttpError(403, "Username or password incorrect");
+    }
+
+    const user = results[0]
+
+    const passwordMatch = await bcrypt.compare(password, user.password);
+
+    if (!passwordMatch) {
+      throw createHttpError(403, "Username or password incorrect");
+    }
+
+    res.json({
+      msg: "Logged in!",
+      user
+    });
+
   }
   catch (err) {
     next(err);
