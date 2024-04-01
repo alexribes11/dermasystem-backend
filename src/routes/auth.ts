@@ -15,6 +15,10 @@ const docClient = DynamoDBDocumentClient.from(client);
 
 AuthRouter.post("/login", async (req, res, next) => {
 
+  res.json({
+    msg: "Logged in!",
+    data: null});
+
   try {
     const { username, password } = req.body;
 
@@ -26,6 +30,8 @@ AuthRouter.post("/login", async (req, res, next) => {
       throw createHttpError(400, "Password required in request body");
     }
 
+    console.log("BEFORE call docClient.send()");
+
     const getResponse = await docClient.send(
       new ScanCommand({
         TableName: "users",
@@ -34,7 +40,9 @@ AuthRouter.post("/login", async (req, res, next) => {
           ":username": username
          }
       })
-    ); 
+    );
+
+    console.log("AFTER call docClient.send()");
 
     const results = getResponse.Items;
 
@@ -44,16 +52,21 @@ AuthRouter.post("/login", async (req, res, next) => {
 
     const user = results[0]
 
+    console.log("BEFORE bcrypt.compare() the req body's password to the database user's password");
+
     const passwordMatch = await bcrypt.compare(password, user.password);
 
     if (!passwordMatch) {
       throw createHttpError(403, "Username or password incorrect");
     }
 
+    console.log("BEFORE call res.json({success: was able to log in})");
+    /*
     res.json({
       msg: "Logged in!",
       user
     });
+    */
 
   }
 
