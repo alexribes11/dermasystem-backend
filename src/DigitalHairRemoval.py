@@ -22,7 +22,7 @@ print(os.getcwd())
 
 src = cv2.imread(PATH_TO_INPUT_IMAGE)
 
-PATH_TO_OUTPUT_IMAGE_FOLDER = "./outputImages/"
+PATH_TO_OUTPUT_IMAGE_FOLDER = "./src/outputImages/"
 NAME_OF_TYPE_OF_IMAGE = "artificial_hair"
 
 def save_im_to_path(path_to_save_image, im):
@@ -38,6 +38,7 @@ def save_im_to_path(path_to_save_image, im):
             i += 1
     
     path_to_save_image_with_number = path_to_save_image_with_number + '.jpg'
+
     was_able_to_save = cv2.imwrite(path_to_save_image_with_number, im, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
     print("was_able_to_save=", was_able_to_save, " for ", path_to_save_image_with_number)
 
