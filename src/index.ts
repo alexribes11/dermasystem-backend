@@ -8,6 +8,8 @@ import dotenv from 'dotenv';
 import connect from "connect-dynamodb";
 /*import { Server } from 'socket.io';
 import { createServer } from 'node:http';*/
+import { Server } from 'socket.io';
+import { createServer } from 'node:http';
 
 const path = require('path');
 
@@ -32,6 +34,42 @@ const upload = multer({storage: storage});
 //const { spawn } = require('child_process');
 const app = express();
 const port = 5005;
+
+const server = createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: 'http://localhost:5173'
+  }
+});
+
+io.engine.on("connection_error", (err) => {
+  console.log(err.req);
+  console.log(err.code);
+  console.log(err.message);
+  console.log(err.context);
+})
+
+io.on('connection', (socket) => {
+  console.log('a user connected');
+});
+
+const server = createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: 'http://localhost:5173'
+  }
+});
+
+io.engine.on("connection_error", (err) => {
+  console.log(err.req);
+  console.log(err.code);
+  console.log(err.message);
+  console.log(err.context);
+})
+
+io.on('connection', (socket) => {
+  console.log('a user connected');
+});
 
 /*
 const server = createServer(app);
@@ -109,6 +147,7 @@ app.use((error: unknown, req: Request, res: Response, next: NextFunction) => {
 
 
 
+<<<<<<< Updated upstream
 app.get('/script1', (req, res) => {
 	let data1:string;
 	const pythonOne = spawn('python3', ['DigitalHairRemoval.py']);
@@ -167,5 +206,9 @@ app.post('/process-image', upload.single("file"), (req, res) => {
 })
 
 app.listen(port, () => {
+=======
+server.listen(port, () => {
+>>>>>>> Stashed changes
+  console.log(`Server started on port ${port}...`);
 console.log(`Server started on port ${port}...`);
 });

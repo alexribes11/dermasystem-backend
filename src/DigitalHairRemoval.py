@@ -1,4 +1,7 @@
+<<<<<<< HEAD
 #!/opt/anaconda3/envs/hair_env/lib/python3.11
+=======
+>>>>>>> c91d153de342e0e3806e71bc5da3bf83211d027a
 print("Hello from python script one call")
 
 import inspect
@@ -23,9 +26,15 @@ print(os.getcwd())
 
 src = cv2.imread(PATH_TO_INPUT_IMAGE)
 
+<<<<<<< HEAD
 
 PATH_TO_OUTPUT_IMAGE_FOLDER = "./src/outputImages/"
 NAME_OF_TYPE_OF_IMAGE = "artificial_hair"
+=======
+PATH_TO_OUTPUT_IMAGE_FOLDER = "./outputImages/"
+NAME_OF_TYPE_OF_IMAGE = "artificial_hair"
+
+>>>>>>> c91d153de342e0e3806e71bc5da3bf83211d027a
 def save_im_to_path(path_to_save_image, im):
     #
     path_to_save_image_with_number = path_to_save_image
