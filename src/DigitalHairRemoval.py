@@ -1,3 +1,4 @@
+#!/opt/anaconda3/envs/hair_env/lib/python3.11
 print("Hello from python script one call")
 
 import inspect
@@ -18,12 +19,13 @@ import os
 PATH_TO_INPUT_IMAGE = sys.argv[1]
 NAME_OF_INPUT_IMAGE = Path(PATH_TO_INPUT_IMAGE).stem
 print(NAME_OF_INPUT_IMAGE)
+print(os.getcwd())
 
 src = cv2.imread(PATH_TO_INPUT_IMAGE)
 
-PATH_TO_OUTPUT_IMAGE_FOLDER = "./outputImages/"
-NAME_OF_TYPE_OF_IMAGE = "artificial_hair"
 
+PATH_TO_OUTPUT_IMAGE_FOLDER = "./src/outputImages/"
+NAME_OF_TYPE_OF_IMAGE = "artificial_hair"
 def save_im_to_path(path_to_save_image, im):
     #
     path_to_save_image_with_number = path_to_save_image
@@ -37,7 +39,8 @@ def save_im_to_path(path_to_save_image, im):
             i += 1
     
     path_to_save_image_with_number = path_to_save_image_with_number + '.jpg'
-    cv2.imwrite(path_to_save_image_with_number, im, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+    was_able_to_save = cv2.imwrite(path_to_save_image_with_number, im, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+    print("was_able_to_save=", was_able_to_save, " for ", path_to_save_image_with_number)
 
 
 print( src.shape )
@@ -65,8 +68,8 @@ save_im_to_path(PATH_TO_OUTPUT_IMAGE_FOLDER + 'blackhat/' + NAME_OF_TYPE_OF_IMAG
 
 # intensify the hair countours in preparation for the inpainting 
 # algorithm
-#lower_bound = 10
-lower_bound = 80
+lower_bound = 10
+#lower_bound = 80
 upper_bound = 255
 ret,thresh2 = cv2.threshold(blackhat,lower_bound,upper_bound,cv2.THRESH_BINARY)
 print( thresh2.shape )
@@ -79,4 +82,5 @@ save_im_to_path(PATH_TO_OUTPUT_IMAGE_FOLDER + 'thresholded/' + NAME_OF_TYPE_OF_I
 dst = cv2.inpaint(src,thresh2,1,cv2.INPAINT_TELEA)
 #cv2.imshow("InPaint",dst)
 #cv2.imwrite(PATH_TO_OUTPUT_IMAGE_FOLDER + 'inpainted/' + NAME_OF_TYPE_OF_IMAGE + '/ip_' + NAME_OF_INPUT_IMAGE + '.jpg', dst, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+print('path_to_save_image=', PATH_TO_OUTPUT_IMAGE_FOLDER + 'inpainted/' + NAME_OF_TYPE_OF_IMAGE + '/ip_' + NAME_OF_INPUT_IMAGE)
 save_im_to_path(PATH_TO_OUTPUT_IMAGE_FOLDER + 'inpainted/' + NAME_OF_TYPE_OF_IMAGE + '/ip_' + NAME_OF_INPUT_IMAGE, dst)

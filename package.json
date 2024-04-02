@@ -13,6 +13,7 @@
   "devDependencies": {
     "@types/bcrypt": "^5.0.2",
     "@types/express": "^4.17.21",
+    "@types/express-session": "^1.18.0",
     "@types/http-errors": "^2.0.4",
     "@types/multer": "^1.4.11",
     "nodemon": "^3.1.0",
@@ -26,9 +27,14 @@
     "@types/dotenv": "^8.2.0",
     "aws-sdk": "^2.1588.0",
     "bcrypt": "^5.1.1",
+    "connect-dynamodb": "^3.0.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "express-session": "^1.18.0",
+    "http-errors": "^2.0.0",
+    "install": "^0.13.0",
+    "npm": "^10.5.0"
     "http-errors": "^2.0.0",
     "multer": "^1.4.5-lts.1"
   }

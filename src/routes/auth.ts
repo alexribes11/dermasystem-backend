@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { RequestHandler, Router } from "express";
 import { DynamoDBClient, } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
 import createHttpError from "http-errors";
@@ -14,7 +14,7 @@ const client = new DynamoDBClient({
 const docClient = DynamoDBDocumentClient.from(client);
 
 AuthRouter.post("/login", async (req, res, next) => {
-
+  console.log("Run AuthRouter.post /login");
   res.json({
     msg: "Logged in!",
     data: null});
@@ -69,11 +69,10 @@ AuthRouter.post("/login", async (req, res, next) => {
     */
 
   }
-
-  catch(error) {
-    next(error);
+  catch (err) {
+    next(err);
   }
-})
+});
 
 AuthRouter.post("/register", async (req, res, next) => {
   try {
@@ -139,5 +138,70 @@ AuthRouter.post("/register", async (req, res, next) => {
     next(error);
   }
 })
+
+
+AuthRouter.post("/login", async (req, res, next) => {
+
+  try {
+    console.log("Body received: ", JSON.stringify(req.body));
+    const { username, password } = req.body;
+
+    if (!username) {
+      throw createHttpError(400, "Username required in request body");
+    }
+    
+    if (!password) {
+      throw createHttpError(400, "Password required in request body");
+    }
+
+    const getResponse = await docClient.send(
+      new ScanCommand({
+        TableName: "users",
+        FilterExpression: "username = :username",
+        ExpressionAttributeValues: {
+          ":username": username
+         }
+      })
+    ); 
+
+    const results = getResponse.Items;
+
+    if (!results) {
+      throw createHttpError(403, "Username or password incorrect");
+    }
+
+    const user = results[0]
+
+    const passwordMatch = await bcrypt.compare(password, user.password);
+
+    if (!passwordMatch) {
+      throw createHttpError(403, "Username or password incorrect");
+    }
+
+    console.log(user);
+    req.session.userId = user.id;
+    console.log(req.session);
+
+    res.json({
+      msg: "Logged in!",
+      user
+    });
+
+  }
+
+  catch(error) {
+    next(error);
+  }
+});
+
+AuthRouter.post("/logout", (req, res, next) => {
+	req.session.destroy(error => {
+		if (error) {
+			next(error);
+		} else {
+			res.sendStatus(200);
+		}
+	});
+});
 
 export default AuthRouter;

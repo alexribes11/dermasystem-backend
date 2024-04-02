@@ -1,0 +1,55 @@
+import {spawn} from 'child_process';
+
+const path = require('path');
+
+const multer = require("multer");
+const storage = multer.diskStorage({
+	destination: (req, file, cb) => {
+		cb(null, 'Images')
+	},
+	filename: (req, file, cb) => {
+		console.log(file)
+		cb(null, Date.now() + path.extname(file.originalname))
+	}
+})
+//const upload = multer({ dest: "uploads/" });
+const upload = multer({storage: storage});
+
+
+
+
+
+
+app.get('/process-image', upload.single("file"), (req, res) => {
+	// upload.single("file") will save the image in the folder
+	// "./Images/" as req.file.filename
+	const name_of_file_to_read = req.file.filename;
+
+	const pythonOne = spawn('python3', ['DigitalHairRemoval.py'], '-fname', name_of_file_to_read);
+
+	pythonOne.on('close', (code) => {
+		// I need to read the output image
+		// that DigitalHairRemoval.py generates,
+		// and send it as a image.
+		let data1 = 'hi';
+		console.log("code=", code);
+		console.log("data1=", data1);
+
+        const path_to_output_file = './outputImages/inpainted/' + 'artificial_hair' + '/ip_' + name_of_file_to_read;
+        res.sendFile(path_to_output_file , { root : __dirname});
+        /*
+        fs.readFile(path_to_output_file, function(err, data) {
+            if (err) {
+                throw err // Fail if the file can't be read.
+            }
+            http.createServer(function(req, res) {
+                res.writeHead(200, {'Content-Type': 'image/jpeg'})
+                res.end(data) // Send the file data to the browser.
+            }).listen(8124)
+            console.log('Server running at http://localhost:8124/')
+        })
+        */
+		res.send(data1);
+	})
+	
+})
