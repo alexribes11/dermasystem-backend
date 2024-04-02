@@ -14,13 +14,10 @@ const client = new DynamoDBClient({
 const docClient = DynamoDBDocumentClient.from(client);
 
 AuthRouter.post("/login", async (req, res, next) => {
-<<<<<<< HEAD
   console.log("Run AuthRouter.post /login");
   res.json({
     msg: "Logged in!",
     data: null});
-=======
->>>>>>> c91d153de342e0e3806e71bc5da3bf83211d027a
 
   try {
     const { username, password } = req.body;
