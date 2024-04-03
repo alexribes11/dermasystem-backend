@@ -10,11 +10,17 @@ import connect from "connect-dynamodb";
 import { createServer } from 'node:http';*/
 import { Server } from 'socket.io';
 import { createServer } from 'node:http';
+import {glob} from 'glob'
+
+
 
 const path = require('path');
+var pathlib = require("pathlib");
 
 //import * as child from 'child_process';
-import {spawn} from 'child_process';
+//import {spawn} from 'child_process';
+const { spawn } = require('child_process');
+
 const multer = require("multer");
 //const upload = multer({ dest: "uploads/" });
 const storage=  multer.diskStorage({
@@ -144,11 +150,11 @@ app.use((error: unknown, req: Request, res: Response, next: NextFunction) => {
 app.get('/script1', (req, res) => {
 	let data1:string;
 	const pythonOne = spawn('python3', ['DigitalHairRemoval.py']);
-	pythonOne.stdout.on('data', function(data) {
+	pythonOne.stdout.on('data', function(data: any) {
 		data1 = data.toString();
 	});
 
-	pythonOne.on('close', (code) => {
+	pythonOne.on('close', (code: any) => {
 		console.log("code=", code);
 		console.log("data1=", data1);
 		res.send(data1);
@@ -165,10 +171,12 @@ app.post('/process-image', upload.single("file"), (req, res) => {
 	if (pathToSavedFile == null) {
 		return;
 	}
-	
-	const pythonOne = spawn('python3.11', ['src/DigitalHairRemoval.py', pathToSavedFile]);
+
+	var options = {stdio: 'inherit'};
+	const pythonOne = spawn('python3.11', ['src/DigitalHairRemoval.py', pathToSavedFile], options);
 	
 	console.log("RUN process-image; Before calling pythonOne.on");
+	/*
 	pythonOne.stdout.setEncoding('utf8');
 	pythonOne.stdout.on('data', function(data) {
 		//Here is where the output goes
@@ -182,8 +190,11 @@ app.post('/process-image', upload.single("file"), (req, res) => {
 
 		console.log('stderr: ' + data);
 	});
+	*/
 
-	pythonOne.on('close', (code) => {
+	pythonOne.on('close', async (code: any) => {
+		process.stdout.write('"npm install" finished with code ' + code + '\n');
+
 		// I need to read the output image
 		// that DigitalHairRemoval.py generates,
 		// and send it as a image.
@@ -192,7 +203,33 @@ app.post('/process-image', upload.single("file"), (req, res) => {
 		console.log("data1=", data1);
 		//const pathToProcessedFile = 'src/outputImages/inpainted/artificial_hair/ip_' + req?.file?.filename;
 
-		res.send({processedFilename: 'ip_' + req?.file?.filename});
+		// Need to search in 'src/outputImages/inpainted/artificial_hair' for a file with the name req?.file?.filename, without the particular extension
+
+		const folderOfProcessedFiles = './src/outputImages/inpainted/artificial_hair';
+
+		/*
+		const inputPathObj = pathlib(req?.file?.filename)
+		console.log("typeof(inputPathObj)=", typeof(inputPathObj))
+		console.log("inputPathObj=", inputPathObj);
+		const inputFileWithoutExt = inputPathObj.base();
+		*/
+		const inputFileWithoutExt = (req?.file?.filename)?.split(".")[0];
+		console.log("inputFileWithoutExt=", inputFileWithoutExt);
+		const myPathToProcessedFileWithoutExt = folderOfProcessedFiles + '/ip_' + inputFileWithoutExt;
+		console.log("myPathToProcessedFileWithoutExt=", myPathToProcessedFileWithoutExt)
+		const pathsToFileWithExt = await glob(myPathToProcessedFileWithoutExt + ".*");
+		console.log("pathsToFileWithExt=", pathsToFileWithExt, "typeof()=", typeof(pathsToFileWithExt));
+		const pathToFileWithExt = pathsToFileWithExt[0];
+		console.log("pathToFileWithExt=", pathToFileWithExt, "typeof()=", typeof(pathToFileWithExt));
+		const ext = path.extname(pathToFileWithExt);
+		console.log("ext=", ext);
+
+		const myPathToProcessedFileWithExt = myPathToProcessedFileWithoutExt + ext;
+		const inputFileWithExt = 'ip_' + inputFileWithoutExt + ext;
+		console.log("iFWE=", inputFileWithExt);
+	
+		//res.send({processedFilename: 'ip_' + req?.file?.filename});
+		res.send({processedFilename: inputFileWithExt});
 	})
 	
 	
