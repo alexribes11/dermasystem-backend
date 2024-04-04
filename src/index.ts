@@ -3,7 +3,6 @@ import express, { NextFunction, Request, Response } from "express";
 import AuthRouter from "./routes/auth";
 import createHttpError, { isHttpError } from "http-errors";
 import session from 'express-session';
-import { DynamoDB, DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import dotenv from 'dotenv';
 import connect from "connect-dynamodb";
 /*import { Server } from 'socket.io';
@@ -11,7 +10,10 @@ import { createServer } from 'node:http';*/
 import { Server } from 'socket.io';
 import { createServer } from 'node:http';
 import {glob} from 'glob'
+import ImageRouter, { uploadImageToS3 } from "./routes/images";
+import dynamo from "./db/dynamo-client";
 
+dotenv.config();
 
 
 const path = require('path');
@@ -71,44 +73,20 @@ io.on('connection', (socket) => {
   console.log('a user connected');
 });
 
-/*
-const server = createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: 'http://localhost:5173'
-  }
-});
-
-io.engine.on("connection_error", (err: any) => {
-  console.log(err.req);
-  console.log(err.code);
-  console.log(err.message);
-  console.log(err.context);
-})
-
-io.on('connection', (socket: any) => {
-  console.log('a user connected');
-});
-*/
-
-// dotenv.config();
-
 const cors = require('cors');
 
 type SessionData = {
   userId: string
 }
 
-const DynamoDBStore = connect<SessionData>(session);
-
 // To use json:
 app.use(express.json());
 app.use(cors({
   origin: 'http://localhost:5173',
+  credentials: true
 }));
 
-
-/*
+const DynamoDBStore = connect<SessionData>(session);
 app.use(session({
   secret: process.env.SESSION_SECRET ?? "secret",
   resave: false,
@@ -116,36 +94,18 @@ app.use(session({
   cookie: {
 		maxAge: 60 * 60 * 1000
 	},
-  store: new DynamoDBStore({})
+  store: new DynamoDBStore({
+    client: dynamo
+  }),
 }));
-*/
 
 app.use("/api/v0/auth", AuthRouter);
+app.use("/api/v0/images", ImageRouter);
 
-/*
-app.use((req, res, next) => {
-	next(createHttpError(404, "Endpoint not found"));
-})
-*/
 console.log("__dirname=", __dirname);
 const combinedPath = path.join(__dirname, 'outputImages/inpainted/artificial_hair');
 console.log("combinedPath=", combinedPath)
 app.use('/static', express.static(combinedPath));
-
-/*
-app.use((error: unknown, req: Request, res: Response, next: NextFunction) => {
-	console.error(error);
-	let errorMessage = "Whoops, something went wrong";
-	let statusCode = 500;
-	if (isHttpError(error)) {
-		statusCode = error.status;
-		errorMessage = error.message;
-	}
-	res.status(statusCode).json({ error: errorMessage });
-});
-*/
-
-
 
 app.get('/script1', (req, res) => {
 	let data1:string;
@@ -162,9 +122,10 @@ app.get('/script1', (req, res) => {
 	
 })
 
-app.post('/process-image', upload.single("file"), (req, res) => {
+app.post('/process-image', upload.single("file"), uploadImageToS3,async (req, res) => {
 	console.log("RUN process-image; Before creating pythonOne");
 	//const savedFilename = req?.file?.filename;
+
 	let pathToSavedFile = req?.file?.path;
 	pathToSavedFile = './' + pathToSavedFile;
 	console.log(req?.file);
@@ -173,7 +134,7 @@ app.post('/process-image', upload.single("file"), (req, res) => {
 	}
 
 	var options = {stdio: 'inherit'};
-	const pythonOne = spawn('python3.11', ['src/DigitalHairRemoval.py', pathToSavedFile], options);
+	const pythonOne = spawn('python3', ['src/DigitalHairRemoval.py', pathToSavedFile], options);
 	
 	console.log("RUN process-image; Before calling pythonOne.on");
 	/*
@@ -231,8 +192,21 @@ app.post('/process-image', upload.single("file"), (req, res) => {
 		//res.send({processedFilename: 'ip_' + req?.file?.filename});
 		res.send({processedFilename: inputFileWithExt});
 	})
-	
-	
+})
+
+app.use((error: unknown, req: Request, res: Response, next: NextFunction) => {
+	console.error(error);
+	let errorMessage = "Whoops, something went wrong";
+	let statusCode = 500;
+	if (isHttpError(error)) {
+		statusCode = error.status;
+		errorMessage = error.message;
+	}
+	res.status(statusCode).json({ error: errorMessage });
+});
+
+app.use((req, res, next) => {
+	next(createHttpError(404, "Endpoint not found"));
 })
 
 server.listen(port, () => {
