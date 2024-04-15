@@ -114,10 +114,6 @@ ImageRouter.get('/', async (req, res, next) => {
         dateUploaded: "01/01/01"
       });
     }
-    // const getObjectParams = {
-    //   Bucket: BUCKET_NAME
-    //   Key: 
-    // }
 
     res.status(200).json({
       photos

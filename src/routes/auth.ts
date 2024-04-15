@@ -1,20 +1,37 @@
 import { RequestHandler, Router } from "express";
-import { DynamoDBClient, } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, PutCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
 import createHttpError from "http-errors";
 import crypto from 'crypto';
-import bcrypt, { hash } from 'bcrypt';
+import bcrypt from 'bcrypt';
+import dynamo from "../db/dynamo-client";
 
 const AuthRouter = Router();
 
-const client = new DynamoDBClient({
-  region: "us-east-1"
-});
+/**
+ * Middleware for determining whether the user is currently authenticated.
+ */
+export const isLoggedIn: RequestHandler = (req, res, next) => {
 
-const docClient = DynamoDBDocumentClient.from(client);
-
-AuthRouter.post("/register", async (req, res, next) => {
   try {
+    if (req.session.userId) {
+      next();
+    } else {
+      throw createHttpError(403, "Please login to continue");
+    }
+  }
+
+  catch(error) {
+    next(error);
+  }
+}
+
+/**
+ * Endpoint for registering a new user
+ */
+AuthRouter.post("/register", async (req, res, next) => {
+
+  try {
+
     const { firstName, lastName, role, username, password, email } = req.body;
 
     if (!firstName) {
@@ -27,6 +44,10 @@ AuthRouter.post("/register", async (req, res, next) => {
 
     if (!role) {
       throw createHttpError(400, "Role required in request body");
+    }
+
+    if (role != 'patient' || role != 'doctor' || role != 'nurse' || role != 'admin') {
+      throw createHttpError(400, "Role must be either patient, doctor, nurse, or admin");
     }
 
     if (!username) {
@@ -59,9 +80,9 @@ AuthRouter.post("/register", async (req, res, next) => {
     });
 
     // No error means the PUT command was successful
-    await docClient.send(putCommand);
+    await dynamo.send(putCommand);
 
-    const getResponse = await docClient.send(
+    const getResponse = await dynamo.send(
       new GetCommand({
         TableName: "users",
         Key: {
@@ -70,20 +91,28 @@ AuthRouter.post("/register", async (req, res, next) => {
       })
     ); 
 
-    console.log(getResponse);
+    req.session.userId = userID;
+    req.session.role = role; 
+
     res.status(200).json({
       result: getResponse
     });
-  } catch(error) {
+
+  } 
+  
+  catch(error) {
     next(error);
   }
+
 })
 
-
+/**
+ * Endpoint for logging in
+ */
 AuthRouter.post("/login", async (req, res, next) => {
 
   try {
-    console.log("Body received: ", JSON.stringify(req.body));
+
     const { username, password } = req.body;
 
     if (!username) {
@@ -94,7 +123,7 @@ AuthRouter.post("/login", async (req, res, next) => {
       throw createHttpError(400, "Password required in request body");
     }
 
-    const getResponse = await docClient.send(
+    const getResponse = await dynamo.send(
       new ScanCommand({
         TableName: "users",
         FilterExpression: "username = :username",
@@ -118,9 +147,8 @@ AuthRouter.post("/login", async (req, res, next) => {
       throw createHttpError(403, "Username or password incorrect");
     }
 
-    console.log(user);
     req.session.userId = user.id;
-    console.log(req.session);
+    req.session.role = user.role; 
 
     res.json({
       msg: "Logged in!",
@@ -134,7 +162,11 @@ AuthRouter.post("/login", async (req, res, next) => {
   }
 });
 
+/**
+ * Endpoint for logging out
+ */
 AuthRouter.post("/logout", (req, res, next) => {
+
 	req.session.destroy(error => {
 		if (error) {
 			next(error);
@@ -142,6 +174,37 @@ AuthRouter.post("/logout", (req, res, next) => {
 			res.sendStatus(200);
 		}
 	});
+
+});
+
+/**
+ * Endpoint for retreiving all user information (except the password)
+ */
+AuthRouter.get("/userInfo", async (req, res, next) => {
+  const loggedInId = req.session.userId;
+  
+  const getResponse = await dynamo.send(
+    new ScanCommand({
+      TableName: "users",
+      FilterExpression: "id = :id",
+      ExpressionAttributeValues: {
+        ":id": loggedInId
+       }
+    })
+  ); 
+
+  const results = getResponse.Items;
+
+  if (!results || results.length === 0) {
+    throw createHttpError(403, "Was not able to find user based on session user id");
+  }
+
+  const userInfo = results[0];
+  
+  let {password: _, ...userInfoWithoutPassword} = userInfo;
+
+  res.json({userInfo: userInfo});
+
 });
 
 export default AuthRouter;

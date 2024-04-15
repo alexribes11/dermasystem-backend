@@ -1,6 +1,6 @@
 import express, { NextFunction, Request, Response } from "express";
 // { isLoggedIn }
-import AuthRouter from "./routes/auth";
+import AuthRouter, { isLoggedIn } from "./routes/auth";
 import createHttpError, { isHttpError } from "http-errors";
 import session from 'express-session';
 import dotenv from 'dotenv';
@@ -76,7 +76,8 @@ io.on('connection', (socket) => {
 const cors = require('cors');
 
 type SessionData = {
-  userId: string
+  userId: string,
+  role: string,
 }
 
 // To use json:
@@ -100,98 +101,99 @@ app.use(session({
 }));
 
 app.use("/api/v0/auth", AuthRouter);
-app.use("/api/v0/images", ImageRouter);
+app.use("/api/v0/images", isLoggedIn, ImageRouter);
 
 console.log("__dirname=", __dirname);
 const combinedPath = path.join(__dirname, 'outputImages/inpainted/artificial_hair');
 console.log("combinedPath=", combinedPath)
 app.use('/static', express.static(combinedPath));
 
-app.get('/script1', (req, res) => {
-	let data1:string;
-	const pythonOne = spawn('python3', ['DigitalHairRemoval.py']);
-	pythonOne.stdout.on('data', function(data: any) {
-		data1 = data.toString();
-	});
 
-	pythonOne.on('close', (code: any) => {
-		console.log("code=", code);
-		console.log("data1=", data1);
-		res.send(data1);
-	})
-	
-})
+app.post('/process-image', upload.single("file"), uploadImageToS3, async (req, res, next) => {
 
-app.post('/process-image', upload.single("file"), uploadImageToS3,async (req, res) => {
-	console.log("RUN process-image; Before creating pythonOne");
-	//const savedFilename = req?.file?.filename;
+  try {
 
-	let pathToSavedFile = req?.file?.path;
-	pathToSavedFile = './' + pathToSavedFile;
-	console.log(req?.file);
-	if (pathToSavedFile == null) {
-		return;
-	}
+    const { userId, role } = req.session;
 
-	var options = {stdio: 'inherit'};
-	const pythonOne = spawn('python3', ['src/DigitalHairRemoval.py', pathToSavedFile], options);
-	
-	console.log("RUN process-image; Before calling pythonOne.on");
-	/*
-	pythonOne.stdout.setEncoding('utf8');
-	pythonOne.stdout.on('data', function(data) {
-		//Here is where the output goes
+    if (role == 'patient') {
+      throw createHttpError(403, "Patients cannot upload images.");
+    }
 
-		console.log('stdout: ' + data);
-	});
+    console.log("RUN process-image; Before creating pythonOne");
+    //const savedFilename = req?.file?.filename;
 
-	pythonOne.stderr.setEncoding('utf8');
-	pythonOne.stderr.on('data', function(data) {
-		//Here is where the error output goes
+    let pathToSavedFile = req?.file?.path;
+    pathToSavedFile = './' + pathToSavedFile;
+    console.log(req?.file);
+    if (pathToSavedFile == null) {
+      return;
+    }
 
-		console.log('stderr: ' + data);
-	});
-	*/
+    var options = {stdio: 'inherit'};
+    const pythonOne = spawn('python3', ['src/DigitalHairRemoval.py', pathToSavedFile], options);
+    
+    console.log("RUN process-image; Before calling pythonOne.on");
+    /*
+    pythonOne.stdout.setEncoding('utf8');
+    pythonOne.stdout.on('data', function(data) {
+      //Here is where the output goes
 
-	pythonOne.on('close', async (code: any) => {
-		process.stdout.write('"npm install" finished with code ' + code + '\n');
+      console.log('stdout: ' + data);
+    });
 
-		// I need to read the output image
-		// that DigitalHairRemoval.py generates,
-		// and send it as a image.
-		let data1 = 'hi';
-		console.log("code=", code);
-		console.log("data1=", data1);
-		//const pathToProcessedFile = 'src/outputImages/inpainted/artificial_hair/ip_' + req?.file?.filename;
+    pythonOne.stderr.setEncoding('utf8');
+    pythonOne.stderr.on('data', function(data) {
+      //Here is where the error output goes
 
-		// Need to search in 'src/outputImages/inpainted/artificial_hair' for a file with the name req?.file?.filename, without the particular extension
+      console.log('stderr: ' + data);
+    });
+    */
 
-		const folderOfProcessedFiles = './src/outputImages/inpainted/artificial_hair';
+    pythonOne.on('close', async (code: any) => {
+      process.stdout.write('"npm install" finished with code ' + code + '\n');
 
-		/*
-		const inputPathObj = pathlib(req?.file?.filename)
-		console.log("typeof(inputPathObj)=", typeof(inputPathObj))
-		console.log("inputPathObj=", inputPathObj);
-		const inputFileWithoutExt = inputPathObj.base();
-		*/
-		const inputFileWithoutExt = (req?.file?.filename)?.split(".")[0];
-		console.log("inputFileWithoutExt=", inputFileWithoutExt);
-		const myPathToProcessedFileWithoutExt = folderOfProcessedFiles + '/ip_' + inputFileWithoutExt;
-		console.log("myPathToProcessedFileWithoutExt=", myPathToProcessedFileWithoutExt)
-		const pathsToFileWithExt = await glob(myPathToProcessedFileWithoutExt + ".*");
-		console.log("pathsToFileWithExt=", pathsToFileWithExt, "typeof()=", typeof(pathsToFileWithExt));
-		const pathToFileWithExt = pathsToFileWithExt[0];
-		console.log("pathToFileWithExt=", pathToFileWithExt, "typeof()=", typeof(pathToFileWithExt));
-		const ext = path.extname(pathToFileWithExt);
-		console.log("ext=", ext);
+      // I need to read the output image
+      // that DigitalHairRemoval.py generates,
+      // and send it as a image.
+      let data1 = 'hi';
+      console.log("code=", code);
+      console.log("data1=", data1);
+      //const pathToProcessedFile = 'src/outputImages/inpainted/artificial_hair/ip_' + req?.file?.filename;
 
-		const myPathToProcessedFileWithExt = myPathToProcessedFileWithoutExt + ext;
-		const inputFileWithExt = 'ip_' + inputFileWithoutExt + ext;
-		console.log("iFWE=", inputFileWithExt);
-	
-		//res.send({processedFilename: 'ip_' + req?.file?.filename});
-		res.send({processedFilename: inputFileWithExt});
-	})
+      // Need to search in 'src/outputImages/inpainted/artificial_hair' for a file with the name req?.file?.filename, without the particular extension
+
+      const folderOfProcessedFiles = './src/outputImages/inpainted/artificial_hair';
+
+      /*
+      const inputPathObj = pathlib(req?.file?.filename)
+      console.log("typeof(inputPathObj)=", typeof(inputPathObj))
+      console.log("inputPathObj=", inputPathObj);
+      const inputFileWithoutExt = inputPathObj.base();
+      */
+      const inputFileWithoutExt = (req?.file?.filename)?.split(".")[0];
+      console.log("inputFileWithoutExt=", inputFileWithoutExt);
+      const myPathToProcessedFileWithoutExt = folderOfProcessedFiles + '/ip_' + inputFileWithoutExt;
+      console.log("myPathToProcessedFileWithoutExt=", myPathToProcessedFileWithoutExt)
+      const pathsToFileWithExt = await glob(myPathToProcessedFileWithoutExt + ".*");
+      console.log("pathsToFileWithExt=", pathsToFileWithExt, "typeof()=", typeof(pathsToFileWithExt));
+      const pathToFileWithExt = pathsToFileWithExt[0];
+      console.log("pathToFileWithExt=", pathToFileWithExt, "typeof()=", typeof(pathToFileWithExt));
+      const ext = path.extname(pathToFileWithExt);
+      console.log("ext=", ext);
+
+      const myPathToProcessedFileWithExt = myPathToProcessedFileWithoutExt + ext;
+      const inputFileWithExt = 'ip_' + inputFileWithoutExt + ext;
+      console.log("iFWE=", inputFileWithExt);
+    
+      //res.send({processedFilename: 'ip_' + req?.file?.filename});
+      res.send({processedFilename: inputFileWithExt});
+    })
+  }
+
+  catch (error) {
+    next(error);
+  }
+
 })
 
 app.use((error: unknown, req: Request, res: Response, next: NextFunction) => {
@@ -210,6 +212,5 @@ app.use((req, res, next) => {
 })
 
 server.listen(port, () => {
-
-console.log(`Server started on port ${port}...`);
+  console.log(`Server started on port ${port}...`);
 });
