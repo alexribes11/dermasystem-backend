@@ -3,7 +3,7 @@ import dotenv from 'dotenv';
 import createHttpError from "http-errors";
 import fs from 'fs';
 import crypto from 'crypto';
-import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import { GetObjectCommand, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import s3 from "../db/s3-client";
 import { GetCommand, PutCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -31,10 +31,14 @@ export const uploadImageToS3:RequestHandler = async (req, res, next) => {
       Bucket: process.env.BUCKET_NAME,
       Key: imageName,
       Body: fileBuffer,
-      ContentType: req.file?.mimetype
+      ContentType: req.file?.mimetype,
+      DeletedDate: null,
     }
 
     const command = new PutObjectCommand(params);
+
+    // s3 = only contains images
+    // DynamoDB = similar to MongoDB
     await s3.send(command);
 
     const getUserCommand = new ScanCommand({
@@ -101,7 +105,22 @@ ImageRouter.get('/', async (req, res, next) => {
 
     const photos = [];
 
+    const curDate = new Date();
+
     for (const photo of user.photos) {
+      if (photo.DeletedDate!=null && (new Date(photo.DeletedDate)) < curDate) {
+        // We need to delete this object from the S3 database.
+        const params = {
+          Bucket: process.env.BUCKET_NAME,
+          Key: imageName,
+        }
+    
+        const command = new DeleteObjectCommand(params);
+    
+        await s3.send(command);
+
+        continue;
+      }
       const command = new GetObjectCommand({
         Bucket: BUCKET_NAME,
         Key: photo
@@ -122,6 +141,37 @@ ImageRouter.get('/', async (req, res, next) => {
   catch(error) {
     next(error);
   }
+});
+
+// Note
+ImageRouter.put('/scheduleDelete', async (req, res, next) => {
+
+  try {
+
+    const { userId } = req.session;
+    const { photoToScheduleDelete} = req.body.photoToScheduleDelete;
+
+    // Find the photo in the S3 database with photoId of photoToScheduleDelete,
+    // and change its DeletedDate property from null
+    // to 30 days ahead of the current time.
+
+    // Obviously, if the DeletedDate property was not null,
+    // then set the DeletedDate property to min of (DeletedDate property,
+    // 30 days ahead of the current time)
+
+    // Throw an UNAUTHORIZED error if the user is not signed in. 
+    if (!userId) {
+      throw createHttpError(403, "Must be signed in to view images");
+    }
+
+    
+
+  }
+
+  catch(error) {
+    next(error);
+  }
+
 });
 
 export default ImageRouter;

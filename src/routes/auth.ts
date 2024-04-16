@@ -32,7 +32,8 @@ AuthRouter.post("/register", async (req, res, next) => {
 
   try {
 
-    const { firstName, lastName, role, username, password, email } = req.body;
+    const { firstName, lastName, role, username, password, email, hospitalId } = req.body;
+    console.log(req.body);
 
     if (!firstName) {
       throw createHttpError(400, "First Name required in request body")
@@ -46,7 +47,7 @@ AuthRouter.post("/register", async (req, res, next) => {
       throw createHttpError(400, "Role required in request body");
     }
 
-    if (role != 'patient' || role != 'doctor' || role != 'nurse' || role != 'admin') {
+    if (role != 'Patient' && role != 'Doctor' && role != 'Nurse' && role != 'Admin') {
       throw createHttpError(400, "Role must be either patient, doctor, nurse, or admin");
     }
 
@@ -62,6 +63,10 @@ AuthRouter.post("/register", async (req, res, next) => {
       throw createHttpError(400, "Email required in request body");
     }
 
+    if (role !== "Admin" && !hospitalId) {
+      throw createHttpError(400, "Hospital Id required in request body");
+    }
+
     const userID = crypto.randomUUID();
     const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -75,6 +80,7 @@ AuthRouter.post("/register", async (req, res, next) => {
         username,
         password: hashedPassword,
         email,
+        hospitalId,
         photos: []
       }
     });
@@ -110,6 +116,9 @@ AuthRouter.post("/register", async (req, res, next) => {
  * Endpoint for logging in
  */
 AuthRouter.post("/login", async (req, res, next) => {
+
+  console.log("POST /login");
+  console.log(req.body);
 
   try {
 

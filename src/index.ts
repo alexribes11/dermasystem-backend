@@ -12,6 +12,7 @@ import { createServer } from 'node:http';
 import {glob} from 'glob'
 import ImageRouter, { uploadImageToS3 } from "./routes/images";
 import dynamo from "./db/dynamo-client";
+import AdminRouter, { isAdmin } from "./routes/admin";
 
 dotenv.config();
 
@@ -102,6 +103,7 @@ app.use(session({
 
 app.use("/api/v0/auth", AuthRouter);
 app.use("/api/v0/images", isLoggedIn, ImageRouter);
+app.use("/api/v0/admin", isLoggedIn, isAdmin, AdminRouter);
 
 console.log("__dirname=", __dirname);
 const combinedPath = path.join(__dirname, 'outputImages/inpainted/artificial_hair');
@@ -196,6 +198,10 @@ app.post('/process-image', upload.single("file"), uploadImageToS3, async (req, r
 
 })
 
+app.use((req, res, next) => {
+	next(createHttpError(404, "Endpoint not found"));
+});
+
 app.use((error: unknown, req: Request, res: Response, next: NextFunction) => {
 	console.error(error);
 	let errorMessage = "Whoops, something went wrong";
@@ -206,10 +212,6 @@ app.use((error: unknown, req: Request, res: Response, next: NextFunction) => {
 	}
 	res.status(statusCode).json({ error: errorMessage });
 });
-
-app.use((req, res, next) => {
-	next(createHttpError(404, "Endpoint not found"));
-})
 
 server.listen(port, () => {
   console.log(`Server started on port ${port}...`);
