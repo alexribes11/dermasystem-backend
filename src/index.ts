@@ -11,7 +11,7 @@ import { Server } from 'socket.io';
 import { createServer } from 'node:http';
 import {glob} from 'glob'
 import ImageRouter, { uploadImageToS3 } from "./routes/images";
-import dynamo from "./db/dynamo-client";
+import dynamoObj from "./db/dynamo-client";
 
 dotenv.config();
 
@@ -96,7 +96,7 @@ app.use(session({
 		maxAge: 60 * 60 * 1000
 	},
   store: new DynamoDBStore({
-    client: dynamo
+    client: dynamoObj.client
   }),
 }));
 
@@ -104,12 +104,19 @@ app.use("/api/v0/auth", AuthRouter);
 app.use("/api/v0/images", isLoggedIn, ImageRouter);
 
 console.log("__dirname=", __dirname);
-const combinedPath = path.join(__dirname, 'outputImages/inpainted/artificial_hair');
+/*
+otFoundError: Endpoint not found
+    at /Users/davidkatz/Documents/VS_Code_2021/COMP_413/Hair_Project/HAIR_WEBSITE/dermasystem-backend/src/index.ts:216:22
+    at Layer.handle [as handle_request] (/Users/davidkatz/Documents/VS_Code_2021/COMP_413/Hair_Project/HAIR_WEBSITE/dermasystem-backend/node_modules/express/lib/router/layer.js:95:5)
+    at trim_prefix (/Users/davidkatz/Documents/VS_Code_2021/COMP_413/Hair_Project/HAIR_WEBSITE/dermasystem-backend/node_modules/express/lib/router/index.js:328:13)
+*/
+// const combinedPath = path.join(__dirname, 'outputImages/inpainted/artificial_hair');
+const combinedPath = path.join(__dirname, 'outputImages/inpainted/real_hair');
 console.log("combinedPath=", combinedPath)
 app.use('/static', express.static(combinedPath));
 
 
-app.post('/process-image', upload.single("file"), uploadImageToS3, async (req, res, next) => {
+app.post('/processImage', upload.single("file"), uploadImageToS3, async (req, res, next) => {
 
   try {
 
@@ -130,19 +137,24 @@ app.post('/process-image', upload.single("file"), uploadImageToS3, async (req, r
     }
 
     var options = {stdio: 'inherit'};
-    const pythonOne = spawn('python3', ['src/DigitalHairRemoval.py', pathToSavedFile], options);
+    // const pythonOne = spawn('python3.11', ['src/DigitalHairRemoval.py', pathToSavedFile], options);
+    const pythonOne = spawn('python3.11', ['src/model_scripts/hair_train.py', pathToSavedFile], options);
     
     console.log("RUN process-image; Before calling pythonOne.on");
+    
+    // pythonOne.stdout.setEncoding('utf8'); // TypeError: Cannot read properties of null (reading 'setEncoding'
     /*
-    pythonOne.stdout.setEncoding('utf8');
-    pythonOne.stdout.on('data', function(data) {
+    pythonOne.stdout.on('data', function(data: any) {
       //Here is where the output goes
 
       console.log('stdout: ' + data);
     });
+    */
 
-    pythonOne.stderr.setEncoding('utf8');
-    pythonOne.stderr.on('data', function(data) {
+    // pythonOne.stdout and pythonOne.stderr is null
+    // pythonOne.stderr.setEncoding('utf8');
+    /*
+    pythonOne.stderr.on('data', function(data: any) {
       //Here is where the error output goes
 
       console.log('stderr: ' + data);
@@ -162,7 +174,7 @@ app.post('/process-image', upload.single("file"), uploadImageToS3, async (req, r
 
       // Need to search in 'src/outputImages/inpainted/artificial_hair' for a file with the name req?.file?.filename, without the particular extension
 
-      const folderOfProcessedFiles = './src/outputImages/inpainted/artificial_hair';
+      const folderOfProcessedFiles = './src/outputImages/inpainted/real_hair';
 
       /*
       const inputPathObj = pathlib(req?.file?.filename)

@@ -1,4 +1,5 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocument } from "@aws-sdk/lib-dynamodb";
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -11,4 +12,12 @@ const dynamo = new DynamoDBClient({
   region: process.env.DYNAMO_REGION
 });
 
-export default dynamo;
+const marshallOptions = {convertClassInstanceToMap: true};
+const unmarshallOptions = {};
+const translateConfig = {marshallOptions, unmarshallOptions};
+
+const dynamodb =  DynamoDBDocument.from(dynamo, translateConfig);
+// export default dynamo;
+
+const dynamoObj = {client: dynamo, doc: dynamodb};
+export default dynamoObj;
