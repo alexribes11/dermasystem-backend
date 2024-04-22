@@ -4,6 +4,7 @@ import createHttpError from "http-errors";
 import fs from 'fs';
 import crypto from 'crypto';
 import { GetObjectCommand, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { GetObjectCommand, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import s3 from "../db/s3-client";
 import { GetCommand, PutCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -31,7 +32,8 @@ export const uploadImageToS3:RequestHandler = async (req, res, next) => {
       Bucket: process.env.BUCKET_NAME,
       Key: imageName,
       Body: fileBuffer,
-      ContentType: req.file?.mimetype
+      ContentType: req.file?.mimetype,
+      DeletedDate: null,
     }
 
     const command = new PutObjectCommand(params);
@@ -109,6 +111,8 @@ ImageRouter.get('/', async (req, res, next) => {
     }
 
     const photos = [];
+
+    const curDate = new Date();
 
     const curDate = new Date();
 

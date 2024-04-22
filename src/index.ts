@@ -102,6 +102,7 @@ app.use(session({
 
 app.use("/api/v0/auth", AuthRouter);
 app.use("/api/v0/images", isLoggedIn, ImageRouter);
+app.use("/api/v0/admin", isLoggedIn, isAdmin, AdminRouter);
 
 console.log("__dirname=", __dirname);
 /*
@@ -208,6 +209,10 @@ app.post('/processImage', upload.single("file"), uploadImageToS3, async (req, re
 
 })
 
+app.use((req, res, next) => {
+	next(createHttpError(404, "Endpoint not found"));
+});
+
 app.use((error: unknown, req: Request, res: Response, next: NextFunction) => {
 	console.error(error);
 	let errorMessage = "Whoops, something went wrong";
@@ -218,10 +223,6 @@ app.use((error: unknown, req: Request, res: Response, next: NextFunction) => {
 	}
 	res.status(statusCode).json({ error: errorMessage });
 });
-
-app.use((req, res, next) => {
-	next(createHttpError(404, "Endpoint not found"));
-})
 
 server.listen(port, () => {
   console.log(`Server started on port ${port}...`);
