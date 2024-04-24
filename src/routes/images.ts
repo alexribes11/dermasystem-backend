@@ -4,77 +4,72 @@ import createHttpError from "http-errors";
 import fs from 'fs';
 import crypto from 'crypto';
 import { GetObjectCommand, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
-import { GetObjectCommand, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import s3 from "../db/s3-client";
-import { GetCommand, PutCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
+import { PutCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import dynamoObj from "../db/dynamo-client";
+import { fetchUser, updateUser } from "../db/utils/user";
+import { deletePhoto, getPhotoUrl } from "../db/utils/photos";
+import { SessionData } from "express-session";
+import { canAccessPatient } from "./patients";
 dotenv.config();
 
 const ImageRouter = Router();
 
-const BUCKET_NAME = process.env.BUCKET_NAME ?? '';
-
-const randomImageName = (bytes = 32) => crypto.randomBytes(bytes).toString('hex');
+const generateImageID = (bytes = 32) => crypto.randomBytes(bytes).toString('hex');
 
 export const uploadImageToS3:RequestHandler = async (req, res, next) => {
-  try {
-    console.log("=============================================")
-    console.log("Running uploadImageToS3...");
-    console.log("User session: ");
-    console.log(req.session);
-    console.log("User ID: ", req.session.userId);
-    const fileBuffer = fs.readFileSync(req.file?.path ?? '');
-    console.log(fileBuffer);
-    const imageName = randomImageName();
 
-    const params = {
+  try {    
+
+    // Throw an UNAUTHORIZED error if the user is not signed in. 
+    const { userId, role } = req.session as SessionData;
+    const { patientId } = req.body;
+
+    if (!userId) {
+      throw createHttpError(403, 'Must be signed in to upload images');
+    }
+
+    // Throw an UNAUTHORIZED error if the user is a patient.
+    if (role === "patient") {
+      throw createHttpError(403, 'Patients are not permitted to upload images')
+    }
+
+    // Fetch the patients's data
+    const patient = await fetchUser(patientId);
+    if (!patient) {
+      throw createHttpError(404, "Patient not found");
+    };
+
+    console.log(patient);
+    console.log(patient.photos);
+
+    // Throw a BAD REQUEST error if the file path was not provided
+    if (!req.file || !req.file.path) {
+      throw createHttpError(400, "File path must be included in body");
+    }
+
+    // Generate the PUT parameters for uploading the image to the S3 bucket.
+    const fileBuffer = fs.readFileSync(req.file.path);
+    const imageID = generateImageID();
+    const s3PutParams = {
       Bucket: process.env.BUCKET_NAME,
-      Key: imageName,
+      Key: imageID,
       Body: fileBuffer,
       ContentType: req.file?.mimetype,
       DeletedDate: null,
     }
 
-    const command = new PutObjectCommand(params);
-    // Add image (with a random name like '3f592') to the s3 database
+    // Send the command to upload the image to S3
+    const command = new PutObjectCommand(s3PutParams);
     await s3.send(command);
-
-    console.log("req.session=", req.session);
-    console.log("req.session.userId=", req.session.userId);
-
-    const getUserCommand = new ScanCommand({
-      TableName: "users",
-      FilterExpression: "id = :id",
-      ExpressionAttributeValues: {
-        ":id": req.session.userId ?? 'janedoe1'
-       }
-    });
-
-    const getResponse = await dynamoObj.doc.send(getUserCommand);
-    const items = getResponse.Items;
-    if (!items || items.length === 0) {
-      throw createHttpError(404, "User not found");
-    };
-
-    const userInfo = items[0];
-    console.log(userInfo);
-    console.log(userInfo.photos);
-
-    const curDate = (new Date()).toString();
-
-    const newImageObj = {imgUrl: imageName, DeletionDate: null, dateUploaded: curDate};
-
-    // It used to be: add imageName to the "photos" array.
-    const putCommand = new PutCommand({
-      TableName: 'users',
-      Item: {
-        ...userInfo,
-        photos: [...userInfo.photos, newImageObj]
-      }
-    });
     
-    await dynamoObj.doc.send(putCommand);
+    // Upload the image's metadata to DynamoDB
+    const curDate = (new Date()).toString();
+    const newImage = {id: imageID, dateDeleted: null, dateUploaded: curDate};
+
+    const newPhotos = [...patient.photos, newImage]
+    updateUser({...patient, photos: newPhotos});
 
     console.log("=============================================")
     next();
@@ -83,133 +78,89 @@ export const uploadImageToS3:RequestHandler = async (req, res, next) => {
     next(error);
   }
 };
-ImageRouter.get('/', async (req, res, next) => {
+
+
+ImageRouter.get('/:patientId', async (req, res, next) => {
 
   try {
 
-    const { userId } = req.session;
-    console.log("userId=", userId);
-
     // Throw an UNAUTHORIZED error if the user is not signed in. 
-    if (!userId) {
+    const { userId, role } = req.session;
+    if (!userId || !role) {
       throw createHttpError(403, "Must be signed in to view images");
     }
 
-    const getCommand = new GetCommand({
-      TableName: 'users',
-      Key: {
-        id: userId
-      }
-    });
-
-    const response = await dynamoObj.doc.send(getCommand);
-    console.log('GET users photos: Response:');
-    console.log(response);
-    const user = response.Item;
+    // Fetch the user's data.
+    const user = await fetchUser(userId);
     if (!user) {
       throw createHttpError(404, 'User not found');
     }
 
-    const photos = [];
+    // Fetch the patient's data.
+    const { patientId } = req.params;
+    const patient = await fetchUser(patientId);
+    if (!patient) {
+      throw createHttpError(404, 'Patient not found');
+    }
+
+    // Verify that the user is authorized to view the patient's data
+    const authorized = canAccessPatient(user, patient);
+    if (!authorized) {
+      throw createHttpError(403, "Not authorized to view patient images");
+    }
 
     const curDate = new Date();
-
-    const curDate = new Date();
-
-    // newUserPhotos is the new version of user.photos
-    // in the database.
-    let newUserPhotos = user.photos;
-    const userPhotosLength = user.photos.length;
-
-    const newDeletionDate = new Date((new Date()).valueOf() + 30*24*60*60*1000);
-    console.log("newDeletionDate=", newDeletionDate, " typeof()=", typeof(newDeletionDate));
     
-    for (let i = userPhotosLength-1; i >= 0; i--) {
-      const photo = user.photos[i];
-      console.log("IN check the deletion date, photo=", photo);
-      if (typeof(photo) != "string") {
-        console.log(photo.DeletionDate, " ", typeof(photo.DeletionDate));
+    // Filter and delete any photos that are past their expiration date
+    const activePhotos = patient.photos.filter(async (photo) => {
+      if (!photo.dateDeleted) {
+        return true; 
       }
-      if (photo.DeletionDate!=null && (new Date(photo.DeletionDate)) < curDate) {
-        console.log("we will delete this photo")
-        newUserPhotos.splice(i, 1);
+      if (new Date(photo.dateDeleted) > curDate) {
+        await deletePhoto(photo);
+        return false;
+      }
+      if (role === "admin") {
+        return true;
+      } else {
+        return false;
+      }
+    })
 
-        // Delete the image from the S3 database of images.
-        const params = {
-          Bucket: process.env.BUCKET_NAME,
-          Key: photo.imageName,
-        }
-        const command = new DeleteObjectCommand(params);
-        
-        await s3.send(command);
-      }
-    } // End of for loop.
-
-    const putCommand = new PutCommand({
-      TableName: 'users',
-      Item: {
-        ...user,
-        photos: newUserPhotos
-      }
+    await updateUser({
+      ...patient,
+      photos: activePhotos
     });
-    await dynamoObj.doc.send(putCommand);
 
+    const photosToSend = [];
 
+    for (var photo of activePhotos) {
 
-
-
-    for (let i = 0; i < user.photos.length; i++) {
-      // changed "photo" from a constant to a non-constant variable
-      // "const photo" --> "let photo"
-      let photo = user.photos[i];
-      if (typeof(photo) == "string") {
-        photo = {imgUrl: photo}
-      }
-
-
-      if (photo.DeletionDate!=null) {
-        // the photo is scheduled to be deleted,
-        // which means that we should not show it in 
-
-        // However, just in case the doctor wants to un-delete this image
-        // recover, before it is deleted from the S3 database,
-        // we should keep this photo in the DynamoDB database photos array.
+      if (photo.dateDeleted !== null && role !== "admin") {
         continue;
       }
 
-      const command = new GetObjectCommand({
-        Bucket: BUCKET_NAME,
-        Key: photo.imgUrl
-      });
-      const url = await getSignedUrl(s3, command, { expiresIn: 3600 });
+      const url = await getPhotoUrl(photo);
 
-      // Need to handle the case where the logged-in user is a patient,
-      // VS the logged-in user is not a patient, differently.
-
-      let patientId = "";
-      let patientName = "";
-      if (user.role == "patient") {
-        patientId = user.userId;
-        patientName = user.firstName + ' ' + user.lastName;
-      } else {
-        
-      }
-      photos.push({
+      photosToSend.push({
         patientId: patientId,
-        patientName: patientName,
-        displayImageUrl: url,
-        dateUploaded: (photo.dateUploaded ? photo.dateUploaded : "Date Uploaded: N/A"),
-        imageUrl: photo.imgUrl
+        patientName: `${patient.firstName} ${patient.lastName}`,
+        imgUrl: url,
+        dateUploaded: (photo.dateUploaded),
       });
+      
     }
 
     res.status(200).json({
-      photos
+      photos: photosToSend
     });
+    
   }
+  
   catch(error) {
     next(error);
   }
+
 });
 
 // Note

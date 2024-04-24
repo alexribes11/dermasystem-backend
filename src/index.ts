@@ -12,7 +12,9 @@ import { createServer } from 'node:http';
 import {glob} from 'glob'
 import ImageRouter, { uploadImageToS3 } from "./routes/images";
 import dynamoObj from "./db/dynamo-client";
-
+import AdminRouter, { isAdmin } from "./routes/admin";
+import cookieParser from "cookie-parser";
+import PatientsRouter from "./routes/patients";
 dotenv.config();
 
 
@@ -50,25 +52,6 @@ const io = new Server(server, {
   }
 });
 
-io.engine.on("connection_error", (err) => {
-  console.log(err.req);
-  console.log(err.code);
-  console.log(err.message);
-  console.log(err.context);
-})
-
-io.on('connection', (socket) => {
-  console.log('a user connected');
-});
-
-
-io.engine.on("connection_error", (err) => {
-  console.log(err.req);
-  console.log(err.code);
-  console.log(err.message);
-  console.log(err.context);
-})
-
 io.on('connection', (socket) => {
   console.log('a user connected');
 });
@@ -82,6 +65,7 @@ type SessionData = {
 
 // To use json:
 app.use(express.json());
+app.use(cookieParser())
 app.use(cors({
   origin: 'http://localhost:5173',
   credentials: true
@@ -91,9 +75,10 @@ const DynamoDBStore = connect<SessionData>(session);
 app.use(session({
   secret: process.env.SESSION_SECRET ?? "secret",
   resave: false,
-  saveUninitialized: true,
+  saveUninitialized: false,
   cookie: {
-		maxAge: 60 * 60 * 1000
+		maxAge: 60 * 60 * 1000,
+    secure: false
 	},
   store: new DynamoDBStore({
     client: dynamoObj.client
@@ -102,7 +87,8 @@ app.use(session({
 
 app.use("/api/v0/auth", AuthRouter);
 app.use("/api/v0/images", isLoggedIn, ImageRouter);
-app.use("/api/v0/admin", isLoggedIn, isAdmin, AdminRouter);
+app.use("/api/v0/admin", AdminRouter);
+app.use("/api/v0/patients", isLoggedIn, PatientsRouter);
 
 console.log("__dirname=", __dirname);
 /*
@@ -139,7 +125,7 @@ app.post('/processImage', upload.single("file"), uploadImageToS3, async (req, re
 
     var options = {stdio: 'inherit'};
     // const pythonOne = spawn('python3.11', ['src/DigitalHairRemoval.py', pathToSavedFile], options);
-    const pythonOne = spawn('python3.11', ['src/model_scripts/hair_train.py', pathToSavedFile], options);
+    const pythonOne = spawn('python3.12', ['src/model_scripts/hair_train.py', pathToSavedFile], options);
     
     console.log("RUN process-image; Before calling pythonOne.on");
     

@@ -4,6 +4,8 @@ import createHttpError from "http-errors";
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import dynamoObj from "../db/dynamo-client";
+import { createHospital } from "../db/utils/hospital";
+import { User } from "../types/User";
 
 const AuthRouter = Router();
 
@@ -13,10 +15,10 @@ const AuthRouter = Router();
 export const isLoggedIn: RequestHandler = (req, res, next) => {
 
   try {
+
     if (req.session.userId) {
       next();
     } else {
-      // throw createHttpError(403, "Please login to continue");
       console.log("RUN isLoggedIn 403 Forbidden");
       return res.status(403).send();
     }
@@ -25,7 +27,14 @@ export const isLoggedIn: RequestHandler = (req, res, next) => {
   catch(error) {
     next(error);
   }
+
 }
+
+
+
+AuthRouter.get("/sessionInfo", async (req, res, next) => {
+  res.status(200).send(req.session);
+})
 
 AuthRouter.get("/loggedInStatus", async (req, res, next) => {
   // isLoggedIn(req, res, next);
@@ -50,7 +59,7 @@ AuthRouter.post("/register", async (req, res, next) => {
 
   try {
 
-    const { firstName, lastName, role, username, password, email, hospitalId } = req.body;
+    let { firstName, lastName, role, username, password, email, hospitalId, isRegisteringHospital, registerHospitalData } = req.body;
     console.log(req.body);
 
     if (!firstName) {
@@ -82,26 +91,41 @@ AuthRouter.post("/register", async (req, res, next) => {
       throw createHttpError(400, "Email required in request body");
     }
 
-    if (role !== "Admin" && !hospitalId) {
+    if (role !== "admin" && !hospitalId) {
       throw createHttpError(400, "Hospital Id required in request body");
+    }
+
+    if (role === "admin" && !isRegisteringHospital && !hospitalId) {
+      throw createHttpError(400, "Hospital Id required in request body");
+    }
+
+    if (isRegisteringHospital) {
+      if (role !== "admin") throw createHttpError(403, "Only admins can register hospitals");
+      hospitalId = (await createHospital(registerHospitalData)).id;
     }
 
     const userID = crypto.randomUUID();
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    let newUser: User & {password: string} = {
+      id: userID,
+      firstName,
+      lastName,
+      userRole: role,
+      username,
+      password: hashedPassword,
+      email,
+      hospitalId,
+      photos: [],
+    }
+
+    if (role === "doctor" || role === "nurse") {
+      newUser = {...newUser, patients: []}
+    }
+
     const putCommand = new PutCommand({
       TableName: "users",
-      Item: {
-        id: userID,
-        firstName,
-        lastName,
-        role,
-        username,
-        password: hashedPassword,
-        email,
-        hospitalId,
-        photos: []
-      }
+      Item: newUser
     });
 
     // No error means the PUT command was successful
@@ -119,10 +143,11 @@ AuthRouter.post("/register", async (req, res, next) => {
     console.log("BEFORE setting fields of req.session, req.session=", req.session);
     req.session.userId = userID;
     req.session.role = role; 
+    req.session.hospitalId = hospitalId;
     console.log("AFTER setting fields of req.session, req.session=", req.session);
 
     res.status(200).json({
-      result: getResponse
+      user: getResponse.Item
     });
 
   } 
@@ -164,12 +189,14 @@ AuthRouter.post("/login", async (req, res, next) => {
     ); 
 
     const results = getResponse.Items;
-
+    console.log("Results:");
+    console.log(results);
     if (!results || results.length === 0) {
       throw createHttpError(403, "Username or password incorrect");
     }
 
-    const user = results[0]
+    const user = results[0];
+    console.log(user);
 
     const passwordMatch = await bcrypt.compare(password, user.password);
 
@@ -179,7 +206,8 @@ AuthRouter.post("/login", async (req, res, next) => {
 
     console.log("BEFORE setting fields of req.session, req.session=", req.session);
     req.session.userId = user.id;
-    req.session.role = user.role; 
+    req.session.role = user.userRole; 
+    req.session.hospitalId = user.hospitalId;
     console.log("AFTER setting fields of req.session, req.session=", req.session);
 
     res.json({
