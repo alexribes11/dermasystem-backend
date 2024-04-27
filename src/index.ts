@@ -90,16 +90,7 @@ app.use("/api/v0/images", isLoggedIn, ImageRouter);
 app.use("/api/v0/admin", AdminRouter);
 app.use("/api/v0/patients", isLoggedIn, PatientsRouter);
 
-console.log("__dirname=", __dirname);
-/*
-otFoundError: Endpoint not found
-    at /Users/davidkatz/Documents/VS_Code_2021/COMP_413/Hair_Project/HAIR_WEBSITE/dermasystem-backend/src/index.ts:216:22
-    at Layer.handle [as handle_request] (/Users/davidkatz/Documents/VS_Code_2021/COMP_413/Hair_Project/HAIR_WEBSITE/dermasystem-backend/node_modules/express/lib/router/layer.js:95:5)
-    at trim_prefix (/Users/davidkatz/Documents/VS_Code_2021/COMP_413/Hair_Project/HAIR_WEBSITE/dermasystem-backend/node_modules/express/lib/router/index.js:328:13)
-*/
-// const combinedPath = path.join(__dirname, 'outputImages/inpainted/artificial_hair');
 const combinedPath = path.join(__dirname, 'outputImages/inpainted/real_hair');
-console.log("combinedPath=", combinedPath)
 app.use('/static', express.static(combinedPath));
 
 
@@ -128,25 +119,6 @@ app.post('/processImage', upload.single("file"), uploadImageToS3, async (req, re
     const pythonOne = spawn('python3.12', ['src/model_scripts/hair_train.py', pathToSavedFile], options);
     
     console.log("RUN process-image; Before calling pythonOne.on");
-    
-    // pythonOne.stdout.setEncoding('utf8'); // TypeError: Cannot read properties of null (reading 'setEncoding'
-    /*
-    pythonOne.stdout.on('data', function(data: any) {
-      //Here is where the output goes
-
-      console.log('stdout: ' + data);
-    });
-    */
-
-    // pythonOne.stdout and pythonOne.stderr is null
-    // pythonOne.stderr.setEncoding('utf8');
-    /*
-    pythonOne.stderr.on('data', function(data: any) {
-      //Here is where the error output goes
-
-      console.log('stderr: ' + data);
-    });
-    */
 
     pythonOne.on('close', async (code: any) => {
       process.stdout.write('"npm install" finished with code ' + code + '\n');

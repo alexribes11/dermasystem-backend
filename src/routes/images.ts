@@ -3,15 +3,15 @@ import dotenv from 'dotenv';
 import createHttpError from "http-errors";
 import fs from 'fs';
 import crypto from 'crypto';
-import { GetObjectCommand, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { PutObjectCommand } from "@aws-sdk/client-s3";
 import s3 from "../db/s3-client";
-import { PutCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import dynamoObj from "../db/dynamo-client";
 import { fetchUser, updateUser } from "../db/utils/user";
 import { deletePhoto, getPhotoUrl } from "../db/utils/photos";
-import { SessionData } from "express-session";
+import { Session, SessionData } from "express-session";
 import { canAccessPatient } from "./patients";
+import { Photo } from "../types/Photo";
+import { User } from "../types/User";
+import { isLoggedIn } from "./auth";
 dotenv.config();
 
 const ImageRouter = Router();
@@ -23,7 +23,7 @@ export const uploadImageToS3:RequestHandler = async (req, res, next) => {
   try {    
 
     // Throw an UNAUTHORIZED error if the user is not signed in. 
-    const { userId, role } = req.session as SessionData;
+    const { userId, role, firstName, lastName } = req.session as SessionData;
     const { patientId } = req.body;
 
     if (!userId) {
@@ -66,7 +66,20 @@ export const uploadImageToS3:RequestHandler = async (req, res, next) => {
     
     // Upload the image's metadata to DynamoDB
     const curDate = (new Date()).toString();
-    const newImage = {id: imageID, dateDeleted: null, dateUploaded: curDate};
+    const newImage: Photo = {
+      id: imageID, 
+      dateDeleted: null, 
+      datePermanentDelete: null,
+      dateUploaded: curDate, 
+      deletedBy: null,
+      uploadedBy: {
+        id: userId,
+        name: `${firstName} ${lastName}`,
+        role: role
+      },
+      patientId,
+      diagnosis: "N/A"
+    };
 
     const newPhotos = [...patient.photos, newImage]
     updateUser({...patient, photos: newPhotos});
@@ -80,15 +93,11 @@ export const uploadImageToS3:RequestHandler = async (req, res, next) => {
 };
 
 
-ImageRouter.get('/:patientId', async (req, res, next) => {
+ImageRouter.get('/:patientId', isLoggedIn, async (req, res, next) => {
 
   try {
 
-    // Throw an UNAUTHORIZED error if the user is not signed in. 
-    const { userId, role } = req.session;
-    if (!userId || !role) {
-      throw createHttpError(403, "Must be signed in to view images");
-    }
+    const {userId} = req.session as SessionData;
 
     // Fetch the user's data.
     const user = await fetchUser(userId);
@@ -110,22 +119,23 @@ ImageRouter.get('/:patientId', async (req, res, next) => {
     }
 
     const curDate = new Date();
-    
+    const patientPhotos = patient.photos ?? [];
+
     // Filter and delete any photos that are past their expiration date
-    const activePhotos = patient.photos.filter(async (photo) => {
+    const activePhotos = patientPhotos.filter(async (photo) => {
       if (!photo.dateDeleted) {
         return true; 
       }
-      if (new Date(photo.dateDeleted) > curDate) {
-        await deletePhoto(photo);
+      if (curDate > new Date(photo.datePermanentDelete ?? "")) {
+        await deletePhoto(patient, photo);
         return false;
       }
-      if (role === "admin") {
+      if (user.userRole === "admin") {
         return true;
       } else {
         return false;
       }
-    })
+    });
 
     await updateUser({
       ...patient,
@@ -136,19 +146,18 @@ ImageRouter.get('/:patientId', async (req, res, next) => {
 
     for (var photo of activePhotos) {
 
-      if (photo.dateDeleted !== null && role !== "admin") {
+      if (photo.dateDeleted !== null && user.userRole !== "admin") {
         continue;
       }
 
       const url = await getPhotoUrl(photo);
 
       photosToSend.push({
-        patientId: patientId,
-        patientName: `${patient.firstName} ${patient.lastName}`,
+        ...photo,
         imgUrl: url,
-        dateUploaded: (photo.dateUploaded),
+        patientName: `${patient.firstName} ${patient.lastName}`
       });
-      
+
     }
 
     res.status(200).json({
@@ -164,84 +173,194 @@ ImageRouter.get('/:patientId', async (req, res, next) => {
 });
 
 // Note
-ImageRouter.put('/scheduleDelete', async (req, res, next) => {
+ImageRouter.put('/scheduleDelete/:patientId/:imageId', async (req, res, next) => {
+
+  console.log("Called PUT /scheduleDelete/:patientId/:imageId");
 
   try {
-    const { userId } = req.session;
-
-    // Throw an UNAUTHORIZED error if the user is not signed in. 
-    if (!userId) {
-      throw createHttpError(403, "Must be signed in to view images");
-    }
-
-    console.log("req.body=", req.body);
-    const photoToScheduleDelete = req.body.photoToScheduleDelete;
-    console.log("photoToScheduleDelete=", photoToScheduleDelete);
-
-    const getUserCommand = new ScanCommand({
-      TableName: "users",
-      FilterExpression: "id = :id",
-      ExpressionAttributeValues: {
-        ":id": req.session.userId ?? 'janedoe1'
-       }
-    });
-
-    const getResponse = await dynamoObj.doc.send(getUserCommand);
-    const items = getResponse.Items;
-    if (!items || items.length === 0) {
-      throw createHttpError(404, "User not found");
-    };
-
-    const userInfo = items[0];
-    console.log(userInfo);
-
-    const newUserPhotos = userInfo.photos;
-    let foundRequestedPhoto = false;
-    for (let i=0; i < newUserPhotos.length; i++) {
-      const curPhotoImageUrl = (typeof(newUserPhotos[i])=="string" ? newUserPhotos[i] : newUserPhotos[i].imgUrl);
-      if  (curPhotoImageUrl == photoToScheduleDelete) {
-        console.log("newUserPhotos[i].imageUrl=", curPhotoImageUrl);
-        const newDeletionDate = new Date((new Date()).valueOf() + 30*24*60*60*1000).toString();
-        if (typeof(newUserPhotos[i])=="string") {
-          newUserPhotos[i] = {imageUrl: curPhotoImageUrl, DeletionDate: newDeletionDate};
-        } else {
-          newUserPhotos[i].DeletionDate = newDeletionDate;
-        }
-        foundRequestedPhoto = true;
-      }
-    }
-
-    console.log("newUserPhotos=", newUserPhotos);
-
-    const putCommand = new PutCommand({
-      TableName: 'users',
-      Item: {
-        ...userInfo,
-        photos: newUserPhotos
-      }
-    });
     
-    await dynamoObj.doc.send(putCommand);
+    const { userId } = req.session as SessionData;
+    const user = await fetchUser(userId) as User;
+    console.log("User:", user);
 
+    if (user.userRole !== "admin" && user.userRole !== "doctor") {
+      throw createHttpError(403, "Unauthorized to access this route");
+    }
 
+    const { patientId, imageId } = req.params;
+    const patient = await fetchUser(patientId);
+    console.log("Patient:", patient);
 
-    // Find the photo in the S3 database with photoId of photoToScheduleDelete,
-    // and change its DeletionDate property from null
-    // to 30 days ahead of the current time.
+    if (!patient) {
+      throw createHttpError(404, "Patient not found");
+    }
 
-    // Obviously, if the DeletionDate property was not null,
-    // then set the DeletionDate property to min of (DeletionDate property,
-    // 30 days ahead of the current time)
+    if (!canAccessPatient(user, patient)) {
+      throw createHttpError(403, "Unathorized to access patient data");
+    }
 
-    console.log("RIGHT BEFORE sending status 200 to response")
+    const photos = patient.photos ?? [];
+
+    const updatedPhotos = photos.map(photo => {
+      if (photo.id !== imageId) return photo;
+      const dateDeleted = (new Date()).toString();
+      const datePermanentDelete = new Date((new Date()).valueOf() + 30*24*60*60*1000).toString();
+      const deletedBy = {
+        id: userId,
+        name: `${user.firstName} ${user.lastName}`,
+        role: user.userRole
+      }
+      return {...photo, dateDeleted, datePermanentDelete, deletedBy};
+    })
+
+    patient.photos = updatedPhotos;
+
+    updateUser(patient);
+
     res.status(200).send();
-    return;
+
   }
 
   catch(error) {
     next(error);
   }
 
+});
+
+// Note
+ImageRouter.put('/recover/:patientId', async (req, res, next) => {
+
+  console.log("Called PUT /recover/:patientId");
+
+  try {
+    
+    const { userId } = req.session as SessionData;
+    const user = await fetchUser(userId) as User;
+    console.log("User:", user);
+
+    if (user.userRole !== "admin") {
+      throw createHttpError(403, "Unauthorized to access this route");
+    }
+
+    const { patientId } = req.params;
+    const patient = await fetchUser(patientId);
+    console.log("Patient:", patient);
+
+    if (!patient) {
+      throw createHttpError(404, "Patient not found");
+    }
+
+    if (!canAccessPatient(user, patient)) {
+      throw createHttpError(403, "Unathorized to access patient data");
+    }
+
+    const image = req.body.image as Photo;
+
+    const updatedPhoto: Photo = {
+      ...image,
+      dateDeleted: null,
+      datePermanentDelete: null,
+      deletedBy: null
+    }
+
+    const photos = patient.photos ?? [];
+    const updatedPhotos = photos.map(photo => {
+      if (photo.id !== updatedPhoto.id) return photo;
+      return updatedPhoto;
+    });
+    
+    patient.photos = updatedPhotos;
+
+    updateUser(patient);
+
+  }
+
+  catch(error) {
+    next(error);
+  }
+
+});
+
+/**
+ * Endpoint used by doctors to publish a diagnosis
+ */
+ImageRouter.put('/publishDiagnosis/:patientId/:imageId', async(req, res, next) => {
+
+  console.log("Calling PUT /publishDiagnosis");
+
+  // Get the logged-in user's data
+  const { userId } = req.session as SessionData;
+  const user = await fetchUser(userId);
+
+  // Verify that the user is a doctor
+  if (user?.userRole !== "doctor") {
+    throw createHttpError(403, "Not authorized to access this route");
+  }
+
+  // Get the patient's data, if it exists
+  const { patientId } = req.params;
+  const patient = await fetchUser(patientId);
+  if (!patient) {
+    throw createHttpError(404, "Patient not found");
+  }
+
+  // Verify that the doctor is authorized to access the patient's data
+  if (!canAccessPatient(user, patient)) {
+    throw createHttpError(403, "Not authorized to access patient data");
+  }
+
+  const { diagnosis } = req.body;
+  if (!diagnosis) {
+    throw createHttpError(400, "Diagnosis expected in request body");
+  }
+
+  const { imageId: photoId } = req.params;
+  const photos = patient.photos ?? [];
+  const updatedPhotos = photos.map((photo) => {
+    if (photo.id !== photoId) return photo;
+    return {...photo, diagnosis}
+  });
+  patient.photos = updatedPhotos;
+  updateUser(patient)
+});
+
+/**
+ * Endpoint used by doctors to hide a diagnosis
+ */
+ImageRouter.put('/hideDiagnosis/:patientId/:imageId', async(req, res, next) => {
+
+  console.log("Calling PUT /publishDiagnosis");
+
+  // Get the logged-in user's data
+  const { userId } = req.session as SessionData;
+  const user = await fetchUser(userId);
+
+  // Verify that the user is a doctor
+  if (user?.userRole !== "doctor") {
+    throw createHttpError(403, "Not authorized to access this route");
+  }
+
+  // Get the patient's data, if it exists
+  const { patientId } = req.params;
+  const patient = await fetchUser(patientId);
+  if (!patient) {
+    throw createHttpError(404, "Patient not found");
+  }
+
+  // Verify that the doctor is authorized to access the patient's data
+  if (!canAccessPatient(user, patient)) {
+    throw createHttpError(403, "Not authorized to access patient data");
+  }
+  
+  const { imageId: photoId } = req.params;
+  const photos = patient.photos ?? [];
+  const updatedPhotos = photos.map((photo) => {
+    if (photo.id !== photoId) return photo;
+    return {...photo, diagnosis: "N/A"}
+  });
+
+  patient.photos = updatedPhotos;
+  updateUser(patient)
 });
 
 export default ImageRouter;

@@ -115,14 +115,18 @@ AdminRouter.get("/hospitals/:zipcode", async(req, res, next) => {
   }
 })
 
-AdminRouter.get("/doctors", isLoggedIn , isAdmin, async (req, res, next) => {
+AdminRouter.get("/doctors", isLoggedIn, async (req, res, next) => {
 
   try {
 
     console.log("==========================================");
     console.log("GET /doctors endpoint:");
 
-    const { hospitalId } = req.session as SessionData;
+    const { hospitalId, role } = req.session as SessionData;
+
+    if (role === "patient") {
+      throw createHttpError(403, "Unauthorized to view this route");
+    }
 
     const getResponse = await dynamoObj.client.send(
       new ScanCommand({
@@ -149,14 +153,18 @@ AdminRouter.get("/doctors", isLoggedIn , isAdmin, async (req, res, next) => {
 
 });
 
-AdminRouter.get("/nurses", isLoggedIn , isDoctor, async (req, res, next) => {
+AdminRouter.get("/nurses", isLoggedIn, async (req, res, next) => {
 
   try {
 
     console.log("==========================================");
     console.log("GET /nurses endpoint:");
 
-    const { hospitalId } = req.session as SessionData;
+    const { hospitalId, role } = req.session as SessionData;
+
+    if (role === "patient") {
+      throw createHttpError(403, "Unauthorized to view this route");
+    }
 
     const getResponse = await dynamoObj.client.send(
       new ScanCommand({
@@ -212,5 +220,28 @@ AdminRouter.put("/assignDoctorToPatient", async (req, res, next) => {
     next(error);
   }
 });
+
+AdminRouter.delete("/:staffId", isLoggedIn, isAdmin, async (req, res, next) => {
+
+  try {
+    const { hospitalId } = req.session as SessionData;
+    const { staffId } = req.params;
+    const staff = await fetchUser(staffId);
+    if (!staff) {
+      throw createHttpError(404, "Staff member not found");
+    }
+    if (staff.hospitalId !== hospitalId) {
+      throw createHttpError(403, "Unauthorized to remove staff member");
+    }
+    staff.patients = [];
+    staff.hospitalId = "";
+    updateUser(staff);
+    res.status(200).json(staff);
+  }
+
+  catch(error) {
+    next(error);
+  }
+})
 
 export default AdminRouter;

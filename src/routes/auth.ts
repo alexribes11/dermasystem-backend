@@ -144,6 +144,8 @@ AuthRouter.post("/register", async (req, res, next) => {
     req.session.userId = userID;
     req.session.role = role; 
     req.session.hospitalId = hospitalId;
+    req.session.firstName = firstName;
+    req.session.lastName = lastName;
     console.log("AFTER setting fields of req.session, req.session=", req.session);
 
     res.status(200).json({
@@ -208,6 +210,8 @@ AuthRouter.post("/login", async (req, res, next) => {
     req.session.userId = user.id;
     req.session.role = user.userRole; 
     req.session.hospitalId = user.hospitalId;
+    req.session.firstName = user.firstName;
+    req.session.lastName = user.lastName;
     console.log("AFTER setting fields of req.session, req.session=", req.session);
 
     res.json({

@@ -1,5 +1,5 @@
 import { RequestHandler, Router } from "express";
-import { SessionData } from "express-session";
+import { Session, SessionData } from "express-session";
 import createHttpError from "http-errors";
 import { fetchUser, updateUser } from "../db/utils/user";
 import { User } from "../types/User";
@@ -177,5 +177,64 @@ PatientsRouter.put("/:patientId/assignNurse", isLoggedIn, async (req, res, next)
     next(error)
   }
 });
+
+/**
+ * Endpoint for unassigning a staff member from a patient
+ */
+PatientsRouter.delete("/:patientId/unassign/:staffId", isLoggedIn, async (req, res, next) => {
+
+  try {
+
+    const { userId } = req.session as SessionData;
+
+    // Fetch the logged-in user's data 
+    const user = await fetchUser(userId) as User;
+
+    // Throw an UNAUTHORIZED error if the user is not an admin or a doctor
+    if (user.userRole !== "admin" && user.userRole !== "doctor") {
+      throw createHttpError(403, "Unauthorized to access this route");
+    }
+
+    // Fetch the patient's data
+    const { patientId } = req.params;
+    const patient = await fetchUser(patientId);
+
+    // Throw a NOT FOUND error if the patient does not exist
+    if (!patient) {
+      throw createHttpError(404, "Patient not found");
+    }
+
+    // Throw an UNAUTHORIZED error if the user does not have permission to access the patient
+    const authorized = canAccessPatient(user, patient);
+    if (!authorized) {
+      throw createHttpError(403, "Unauthorized to access patient");
+    }
+
+    // Fetch the staff member to be unassigned
+    const { staffId } = req.params;
+    const staff = await fetchUser(staffId);
+
+    // Throw a NOT FOUND error if the staff member does not exist
+    if (!staff) {
+      throw createHttpError(404, "Staff member not found");
+    }
+
+    const patients = staff.patients ?? [];
+
+    // Filter out the patient from the staff member's patients 
+    const updatedPatients = patients.filter(patient => patient !== patientId);
+    staff.patients = updatedPatients;
+    updateUser(staff);
+
+    // Send the info for the newly updated staff member
+    res.status(200).json({ staff });
+
+  }
+
+  catch(error) {
+    next(error);
+  }
+
+})
 
 export default PatientsRouter;
